@@ -1,0 +1,458 @@
+manifest:
+  version: "0.1.3"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: nikisetti01/adk-edu-suite-for-gdg-milan-hack-2025
+    source: https://github.com/nikisetti01/adk-edu-suite-for-gdg-milan-hack-2025
+    branch: main
+    commit: "b7d1de94"
+    scope: [calendar/calendar_agent/agent.py, question_agent/agent.py, socratic_agent/fastapi_app.py, socratic_agent/socratic_agent/agent.py,
+      tester_agent_app/fastapi_app.py]
+  issued:
+    by: A2AS.org
+    at: '2026-02-11T17:02:58Z'
+    url: https://a2as.org/certified/agents/nikisetti01/adk-edu-suite-for-gdg-milan-hack-2025
+  signatures:
+    digest: sha256:umGXDc7T1eCC-yJtirlQM7bKFKWH3TWbfP9gI5sApBk
+    key: ed25519:aciLux5AUawf4reG9YqGXSO2RaJep0E4sRudS3omWOk
+    sig: ed25519:Pqx_wXeiFD1ENQakiJuhjTCw-Op-yVo0DGt91VvO1UR_ra5zp0zrsxhUvIjxsJ6WBaLkd5bEEA7wJyh4w1BbAQ
+
+agents:
+  fitness_agent:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [penalty_function, last_score, stop_signal]
+    params:
+      name: fitness_agent
+      description: This agent evaluates the user answer giving it a score.
+      instruction: ['You have the other following tasks, but you don''t have to show them to the user nor setting them in
+          the output - they are just for you, do your task in the order they are listed:', 1. Call the penalty function to
+          increase the penalty score., 2. Provide the generated score of the answer you received as the ouput., 3. Get the
+          previous score using the last score function., '4. Compare the two scores, if the variation between the previous
+          and the current score is very small (a difference of 0.1 or 0.05) use the stop function to alert the following agents.',
+        5. If the score is almost equal to 1.0 (with a 0.05 or 0.1 threashold) use the stop function to alert the following
+          agents.]
+      output_key: score
+  imprecision_detector.0:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve]
+    params:
+      name: imprecision_detector
+      description: This agent identifies inaccuracies or imprecise statements in the user's answer.
+      instruction: [You are an imprecision detector., Use the retrieval tool to verify facts., Return to the user his sentence
+          highlighting with bold characters the wrong parts of his answer., Do **not** correct or explain the errors. Set
+          the list of errors in your state and turn yourself off.]
+      output_key: errors
+      instance: imprecision_detector
+  imprecision_detector.1:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve]
+    params:
+      name: imprecision_detector
+      description: you are an imprecision_detector, just find and return the imprecision in the user answer.
+      instruction: ['Using the answer of the user and the {question} receive by the', 'agent and the retrieve tool find the
+          phrases used by the user answer that are incorrect for the answer or not totaly correct and answer with them, DO
+          NOT correct just report the error phrases to the sochratic agent without answer .']
+      output_key: errors
+      instance: imprecision_detector
+  pipeline_agent.0:
+    type: instance
+    params:
+      name: pipeline_agent
+      description: Executes a sequence of detection, fitness and sochratic questioning.
+      sub_agents: [imprecision_detector, fitness_agent, sochratic_agent]
+      instance: pipeline_agent
+  pipeline_agent.1:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve]
+    params:
+      name: pipeline
+      description: you are a pipeline agent, you have to link the imprecision_detector and the sochratic_agent.
+      instruction: ['you are the pipeline agent, you have to use the imprecision_detector and pass its answer to the sochratic_agent.']
+      output_key: question
+      instance: pipeline_agent
+  question_agent.0:
+    type: instance
+    models: [gemini-1.5-pro-001]
+    params:
+      name: questioner
+      description: This agent asks a question to the user about the French Revolution.
+      instruction: [You are interested in just one thing. Ask the user one clear and specific question about the French Revolution.]
+      output_key: question
+      instance: question_agent
+  question_agent.1:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    params:
+      name: questioner
+      instruction: ['you are a questioner, ask a question to the user and wait for the answer about revolution French.']
+      output_key: question
+      instance: question_agent
+  root_agent.0:
+    type: instance
+    models: [chat-bison-001]
+    tools: [question_agent, pipeline_agent, stopping_agent]
+    params:
+      name: agent
+      description: Coordinates all sub-agents.
+      instruction: ['You are the coordinator agent, and your primary role is to manage the execution of the entire process,
+          ensuring that each step is followed in sequence and that conditions for stopping or restarting the process are handled
+          correctly.', 'Your job consists in managing the following application:', 'When the user greets you (e.g., "hi",
+          "hello", or similar), your first action is to retrieve and deliver a question using the questioner agent. The questioner
+          agent should only be invoked at the beginning of the process or when explicitly requested by the stopping agent.',
+        Only the first time that the user asnwer the question coming from the questioner agent you must forward his answer
+          to the pipeline agent. The pipeline agent will then handle the user's answer according to its sequential pattern
+          and propose a new question., 'It is crucial that you do not invoke the questioner agent unless explicitly instructed
+          by the stopping agent to restart the application or initiate a new question. You must not bypass or skip the sequence
+          of steps, and all answers must be handled sequentially, with no exceptions.']
+      instance: root_agent
+  root_agent.1:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [create_calendar]
+    params:
+      name: root_agent
+      description: "\n    Sei uno scheduling agent specializzato nell'organizzazione dello studio universitario. Il tuo compito\
+        \ è creare un piano di studio personalizzato dall'oggi fino alla data di un esame specifico.\n    Ricevi i seguenti\
+        \ input dall’utente:\n    - Data dell’esame finale (formato YYYY-MM-DD)\n    - Grado di comprensione da raggiungere\
+        \ (Base, Medio, Alto)\n    - Ore giornaliere disponibili per studiare (numero intero)\n    - Periodo del giorno in\
+        \ cui l’utente può studiare (Mattina, Pomeriggio, Sera)\n    - Titolo o nome dell’esame\n\n    Con queste informazioni,\
+        \ devi generare uno **scheduler giornaliero** che divide le ore in 3 fasi di studio, a seconda del periodo:\n    1.\
+        \ **Studio individuale** (focus sui contenuti teorici e apprendimento autonomo)\n    2. **Modalità GYM** (ripasso\
+        \ attivo, schemi, flashcard, spiegazioni orali, problem solving veloce)\n    3. **Test** (simulazioni d’esame, quiz,\
+        \ domande aperte, verifica degli obiettivi)\n\n    Distribuisci le fasi tenendo conto di:\n    - L’obiettivo finale\
+        \ di comprensione (più è alto, più serve intensificare la GYM e i test verso la fine)\n    - Il tempo disponibile\
+        \ (ore al giorno * giorni disponibili)\n    - Progressione graduale: all’inizio più studio individuale, poi GYM, poi\
+        \ test sempre più frequenti\n    - Mantieni almeno un giorno di scarico o test leggero ogni 7 giorni\n\n    Genera\
+        \ per ogni giorno:\n    - Data\n    - Fascia oraria (coerente con il periodo selezionato)\n    - Numero di ore\n \
+        \   - Attività prevista (Studio individuale / GYM / Test)\n\n    Rispetta sempre le ore indicate dall’utente. Concentrati\
+        \ sulla qualità del tempo, non sul riempire tutti gli slot disponibili. L’obiettivo è un piano sostenibile, adattivo\
+        \ e coerente con il livello di apprendimento desiderato.\n    "
+      instance: root_agent
+  root_agent.2:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    params:
+      name: coordinator
+      description: you are the coordinator you have to coordinate the subagent.
+      instruction: ['you are the coordinator when the user say hi you have to call the sub-agent stt agent, then question_agent
+          produce the question than when the user answer you pass the answer of the user', to the subagent  pipeline_agent.]
+      instance: root_agent
+      sub_agents: [sst_agent, question_agent, imprecision_detector, sochratic_agent]
+  sochratic_agent.0:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve, tts_google]
+    params:
+      name: sochratic_agent
+      description: This agent formulates a follow-up question based on a mistake the user made.
+      instruction: [You are a Socratic agent., Use the retrieval tool if needed to better understand the topic., 'Then, generate
+          **one thought-provoking question** that focuses specifically on one of the incorrect phrases, encouraging the user
+          to reflect or elaborate on that point.', 'Your answer must include:', '- A single new Socratic question to ask the
+          user about one of those errors. your answer must be created using the tts_google tool. use it always.', than put
+          the answer of the user to the imprecision_detector agent and restart the pipeline. use the tts_google tool to create
+          the speech version after every response.]
+      output_key: question
+      instance: sochratic_agent
+  sochratic_agent.1:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve, tts_google]
+    params:
+      name: sochratique
+      description: you are a sochratique agent, you need to make a question about the error the user made in the answer .
+      output_key: question
+      instance: sochratic_agent
+  sst_agent:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    params:
+      name: pipeline
+      instruction: ['you are a pipeline agent, you have to link the imprecision_detector and the sochratic_agent.']
+      output_key: speech
+  stopping_agent:
+    type: instance
+    models: [gemini-2.0-flash-001]
+    tools: [qdrant_retrieve, stop_function, evaluation_tool]
+    params:
+      name: stopping_agent
+      description: This agent understands if the user answer is good enough and stop the pipeline if needed.
+      instruction: ['You are the stopping agent, responsible for deciding whether to halt the execution of the pipeline based
+          on a stop signal and the quality of the user''s answer.', 'If the value of the stop signal: If the stop function
+          returns False, you must  return control to the coordinator agent requesting him to start the pipeline agent. In
+          this case, you should not evaluate the answer or use any tools.', 'Use the evaluation tool, if the return is True
+          the answer is good enough, you must return control to the coordinator agent asking him to restart the application
+          by invoking the questioning agent, which will restart the application and generate new questions for the user.',
+        'Otherwise use the evaluation tool, if the return is False, meaning the answer is not good enough, you must provide
+          the user with clear feedback on what went wrong. This includes comparing their answer to the correct one using the
+          appropriate tool, and helping them understand their mistake so they can improve. When return the control to the
+          coordinator agent, you must ask him to stop the application because the user has to study again.', 'When you return
+          the control to the coordinator agent, you must provide him with a message that includes:', '- The action to perform:
+          continue with the pipeline, restarting from a new question or stop the applicatio.', '- A brief feedback on the
+          reason of the action.']
+      output_key: stop_flag
+
+models:
+  chat-bison-001:
+    type: literal
+    agents: [root_agent.0]
+  gemini-1.5-pro-001:
+    type: literal
+    agents: [question_agent.0]
+  gemini-2.0-flash:
+    type: literal
+  gemini-2.0-flash-001:
+    type: literal
+    agents: [imprecision_detector.0, fitness_agent, sochratic_agent.0, stopping_agent, root_agent.1, question_agent.1, sst_agent,
+      imprecision_detector.1, sochratic_agent.1, pipeline_agent.1, root_agent.2]
+
+tools:
+  create_calendar:
+    type: function
+    agents: [root_agent.1]
+    params:
+      description: |-
+        Genera un calendario di studio in tre blocchi consecutivi e lo esporta in CSV
+        nella cartella ./exams/{exam_title}/studio_scheduler.csv, creando la directory
+        se necessario. Ritorna una stringa JSON con esito e percorso file.
+  evaluation_tool:
+    type: function
+    agents: [stopping_agent]
+  last_score:
+    type: function
+    agents: [fitness_agent]
+  penalty_function:
+    type: function
+    agents: [fitness_agent]
+  pipeline_agent:
+    type: agent
+    agents: [root_agent.0]
+    params:
+      wrapper: AgentTool
+      agent: pipeline_agent
+  qdrant_retrieve:
+    type: function
+    agents: [imprecision_detector.0, sochratic_agent.0, stopping_agent, imprecision_detector.1, sochratic_agent.1, pipeline_agent.1]
+  question_agent:
+    type: agent
+    agents: [root_agent.0]
+    params:
+      wrapper: AgentTool
+      agent: question_agent
+  stop_function:
+    type: function
+    agents: [stopping_agent]
+  stop_signal:
+    type: function
+    agents: [fitness_agent]
+  stopping_agent:
+    type: agent
+    agents: [root_agent.0]
+    params:
+      wrapper: AgentTool
+      agent: stopping_agent
+  tts_google:
+    type: function
+    agents: [sochratic_agent.0, sochratic_agent.1]
+
+teams:
+  pipeline_agent:
+    type: sequential
+    agents: [pipeline_agent, imprecision_detector, fitness_agent, sochratic_agent]
+  root_agent.2:
+    type: hierarchy
+    agents: [root_agent.2, sst_agent, question_agent, imprecision_detector, sochratic_agent]
+
+imports:
+  Agent: google.adk.agents.Agent
+  agent: agent
+  agent_tool: google.adk.tools.agent_tool
+  asyncio: asyncio
+  Client: google.genai.Client
+  Content: google.genai.types.Content
+  csv: csv
+  datetime: datetime.datetime
+  Distance: qdrant_client.models.Distance
+  FastAPI: fastapi.FastAPI
+  FileResponse: fastapi.responses.FileResponse
+  genai: google.genai
+  glob: glob
+  InMemorySessionService: google.adk.sessions.in_memory_session_service.InMemorySessionService
+  json: json
+  JSONResponse: fastapi.responses.JSONResponse
+  LiveRequestQueue: google.adk.agents.LiveRequestQueue
+  load_dotenv: dotenv.load_dotenv
+  os: os
+  Part: google.genai.types.Part
+  Path: pathlib.Path
+  PointStruct: qdrant_client.models.PointStruct
+  pygame: pygame
+  QdrantClient: qdrant_client.QdrantClient
+  Query: fastapi.Query
+  re: re
+  root_agent: socratic_agent.agent.root_agent
+  RunConfig: google.adk.agents.run_config.RunConfig
+  Runner: google.adk.runners.Runner
+  sd: sounddevice
+  SentenceTransformer: sentence_transformers.SentenceTransformer
+  SequentialAgent: google.adk.agents.SequentialAgent
+  StaticFiles: fastapi.staticfiles.StaticFiles
+  texttospeech: google.cloud.texttospeech
+  timedelta: datetime.timedelta
+  ToolContext: google.adk.tools.ToolContext
+  VectorParams: qdrant_client.models.VectorParams
+  WebSocket: fastapi.WebSocket
+  write: scipy.io.wavfile.write
+
+functions:
+  add_block:
+    type: sync
+    module: calendar.calendar_agent.agent
+    args: [n_days, label]
+  agent_to_client_messaging:
+    type: async
+    module: socratic_agent.fastapi_app
+    args: [websocket, live_events]
+  client_to_agent_messaging:
+    type: async
+    module: socratic_agent.fastapi_app
+    args: [websocket, live_request_queue]
+  create_calendar:
+    type: sync
+    module: calendar.calendar_agent.agent
+    args: [exam_date, understanding_level, daily_hours, study_period, exam_title]
+    params:
+      returns: str
+  get_ground_truth_pdfs:
+    type: async
+    module: tester_agent_app.fastapi_app
+  last_score:
+    type: sync
+    module: socratic_agent.socratic_agent.agent
+    args: [tool_context]
+    params:
+      returns: float
+  penalty_function:
+    type: sync
+    module: socratic_agent.socratic_agent.agent
+    args: [tool_context]
+  play_mp3_async:
+    type: async
+    module: socratic_agent.socratic_agent.agent
+    args: [path]
+  qdrant_retrieve:
+    type: sync
+    module: question_agent.agent
+    args: [query]
+    params:
+      returns: str
+  record_audio:
+    type: sync
+    module: question_agent.agent
+    args: [filename, duration, fs]
+  root:
+    type: async
+    module: socratic_agent.fastapi_app
+  start_agent_session:
+    type: sync
+    module: socratic_agent.fastapi_app
+    args: [session_id]
+  stop_signal:
+    type: sync
+    module: socratic_agent.socratic_agent.agent
+    args: [tool_context]
+  stt_tool:
+    type: sync
+    module: question_agent.agent
+    args: [filepath]
+  tts_google:
+    type: sync
+    module: question_agent.agent
+    args: [data]
+  view_pdf:
+    type: async
+    module: tester_agent_app.fastapi_app
+    args: [path]
+  websocket_endpoint:
+    type: async
+    module: socratic_agent.fastapi_app
+    args: [websocket, session_id]
+
+files:
+  ./:
+    type: pattern
+    actions: [read]
+    params:
+      patterns: ['*.pdf']
+      caller: [get_ground_truth_pdfs]
+  audio.wav:
+    type: variable
+    actions: [read]
+    params:
+      caller: [write]
+  csv_path:
+    type: variable
+    actions: [write]
+    params:
+      caller: [open, csv.writer]
+      alias: [f]
+  Desktop/Hackathon/gdg2025/sochratic_agent/output.mp3:
+    type: literal
+    actions: [write, delete]
+    params:
+      caller: [open, tts_google]
+      alias: [out]
+  Desktop/Hackathon/gdg2025/tester_agent_app/tester_agent/completed_exams:
+    type: literal
+    actions: [read]
+  dir_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.makedirs]
+  folder:
+    type: variable
+    actions: [read]
+    params:
+      caller: [os.listdir]
+  GROUND_TRUTH_DIR:
+    type: literal
+    actions: [read]
+    params:
+      caller: ['Path(''C:/Users/krysp/Desktop/Hackathon/gdg2025/tester_agent_app/tester_agent/completed_exams'')', GROUND_TRUTH_DIR.glob]
+  index.html:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [STATIC_DIR, index.html]
+  output.mp3:
+    type: literal
+    actions: [write]
+    params:
+      caller: [open]
+      alias: [out]
+  path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [pygame.mixer.music.load, Path]
+  pdf_path:
+    type: literal
+    actions: [read]
+    params:
+      caller: [Path(path)]
+  STATIC_DIR:
+    type: literal
+    actions: [read]
+    params:
+      caller: [Path(static)]
+  studio_scheduler.csv:
+    type: pattern
+    actions: [read]
+    params:
+      caller: [os.path.join]
+      pattern: [dir_path, studio_scheduler.csv]
